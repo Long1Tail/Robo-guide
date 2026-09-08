@@ -1,0 +1,25 @@
+# Параметры VLM-оркестратора решений робота-экскурсовода.
+
+/**/vlm_agent_node:
+  ros__parameters:
+    backend: "vllm"                         # vllm | llama_cpp | mock
+    base_url: "http://127.0.0.1:8000/v1"
+    model: "Qwen/Qwen2.5-VL-3B-Instruct"
+    api_key_env: "VLM_API_KEY"
+    request_timeout_s: 4.0
+    temperature: 0.1
+
+    # Камера и предобработка
+    camera_topic: "/camera/color/image_raw"
+    target_width: 640
+    target_height: 480
+    jpeg_quality: 80
+
+    # Пороги валидации и безопасность
+    min_confidence: 0.70
+    fallback_phrase: "Извините, я не совсем понял вас. Пожалуйста, повторите."
+
+    # Настройки речи и логов
+    say_priority: 40
+    say_scope: 2                            # SCOPE_DIALOG
+    log_dir: "~/.ros/vlm_turns"

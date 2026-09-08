@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>guide_robot_vlm</name>
+  <version>0.1.0</version>
+  <description>
+    VLM-оркестратор робота-экскурсовода: принимает решения по паре
+    (кадр с камеры + запрос посетителя + состояние миссии), выбирает действие
+    из фиксированной библиотеки навыков и формирует его аргументы.
+  </description>
+  <maintainer email="mook@innopolis.university">Mook</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>guide_robot_msgs</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>python3-requests</depend>
+  <depend>python3-pil</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
