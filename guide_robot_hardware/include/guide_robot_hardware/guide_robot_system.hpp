@@ -150,7 +150,7 @@ private:
 
   // Ход времени для RCLCPP_*_THROTTLE: монотонный, чтобы прыжок системных
   // часов не заблокировал диагностику на произвольный срок.
-  rclcpp::Clock clock_{RCL_STEADY_TIME};
+  mutable rclcpp::Clock clock_{RCL_STEADY_TIME};
 
   // Команды (пишет controller_manager)
   double left_vel_cmd_{0.0};   // рад/с
