@@ -221,6 +221,7 @@ class SoundDeviceEmitter:
         self._device = resolve_device(device, "output", min_channels=channels)
         self._reject_shared_plugin(allow_shared)
         self._stream: object | None = None
+        self._fallback: MemoryEmitter | None = None
         self._pull: PullCallable | None = None
         self.failure: BaseException | None = None
         self._lock = threading.Lock()
@@ -257,19 +258,34 @@ class SoundDeviceEmitter:
         """Открыть устройство и запустить поток колбэков."""
         self._pull = pull
         with self._lock:
-            self._stream = self._sd.OutputStream(
-                samplerate=self._sample_rate,
-                channels=self._channels,
-                dtype="int16",
-                blocksize=self._blocksize,
-                latency=self._latency,
-                device=self._device,
-                callback=self._callback,
-            )
-            self._stream.start()  # type: ignore[attr-defined]
+            try:
+                self._stream = self._sd.OutputStream(
+                    samplerate=self._sample_rate,
+                    channels=self._channels,
+                    dtype="int16",
+                    blocksize=self._blocksize,
+                    latency=self._latency,
+                    device=self._device,
+                    callback=self._callback,
+                )
+                self._stream.start()  # type: ignore[attr-defined]
+            except Exception as error:
+                import logging
+                logging.getLogger("guide_robot_voice.sink").warning(
+                    "Аудиоустройство недоступно (%s), переход на программную эмуляцию (MemoryEmitter)",
+                    error,
+                )
+                self._fallback = MemoryEmitter(
+                    block=self._blocksize,
+                    interval=float(self._blocksize) / self._sample_rate,
+                )
+                self._fallback.open(pull)
 
     def abort(self) -> None:
         """Pa_AbortStream: остановить немедленно, буфер устройства выбросить."""
+        if self._fallback is not None:
+            self._fallback.abort()
+            return
         stream = self._stream
         if stream is not None:
             with contextlib.suppress(self._sd.PortAudioError):
@@ -277,6 +293,9 @@ class SoundDeviceEmitter:
 
     def resume(self) -> None:
         """Запустить поток заново после abort()."""
+        if self._fallback is not None:
+            self._fallback.resume()
+            return
         stream = self._stream
         if stream is None:
             return
@@ -286,6 +305,10 @@ class SoundDeviceEmitter:
 
     def close(self) -> None:
         """Закрыть устройство."""
+        if self._fallback is not None:
+            self._fallback.close()
+            self._fallback = None
+            return
         with self._lock:
             stream, self._stream = self._stream, None
         if stream is not None:

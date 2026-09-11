@@ -35,7 +35,7 @@ from guide_robot_voice.lib.chunker import ChunkerConfig, TextChunker
 from guide_robot_voice.lib.qos import QOS_CANCEL_ALL, QOS_SYSTEM_EVENT, QOS_VOICE_SPEAKING
 from guide_robot_voice.lib.resampler import Resampler
 from guide_robot_voice.lib.scheduler import Action, Scheduler, Scope, Utterance
-from guide_robot_voice.lib.sink import EpochFencedSink, SoundDeviceEmitter
+from guide_robot_voice.lib.sink import EpochFencedSink, MemoryEmitter, SoundDeviceEmitter
 
 
 class TtsNode(LifecycleNode):
@@ -136,14 +136,35 @@ class TtsNode(LifecycleNode):
         device = self.get_parameter("device").value or None
         self._stage = f"открытие устройства вывода ({device or 'по умолчанию'})"
         self.get_logger().info(f"открываю устройство вывода: {device or 'по умолчанию'}")
-        emitter = SoundDeviceEmitter(
-            sample_rate=device_rate,
-            channels=int(self.get_parameter("channels").value),
-            block_ms=block_ms,
-            buffer_ms=periods * block_ms,
-            device=device,
-            allow_shared=bool(self.get_parameter("allow_shared").value),
-        )
+        if device in ("memory", "dummy", "mock"):
+            emitter = MemoryEmitter(
+                block=int(device_rate * block_ms / 1000),
+                interval=block_ms / 1000.0,
+            )
+        else:
+            try:
+                import sounddevice as sd
+
+                devices = sd.query_devices()
+                has_output = any(d.get("max_output_channels", 0) > 0 for d in devices)
+                if not has_output:
+                    raise RuntimeError("В системе нет доступных аудиоустройств вывода")
+                emitter = SoundDeviceEmitter(
+                    sample_rate=device_rate,
+                    channels=int(self.get_parameter("channels").value),
+                    block_ms=block_ms,
+                    buffer_ms=periods * block_ms,
+                    device=device,
+                    allow_shared=bool(self.get_parameter("allow_shared").value),
+                )
+            except Exception as error:
+                self.get_logger().warning(
+                    f"Аудиоустройство недоступно ({error}), использую программный MemoryEmitter"
+                )
+                emitter = MemoryEmitter(
+                    block=int(device_rate * block_ms / 1000),
+                    interval=block_ms / 1000.0,
+                )
         self._sink = EpochFencedSink(
             emitter,
             sample_rate=device_rate,
@@ -196,7 +217,23 @@ class TtsNode(LifecycleNode):
             assert self._sink is not None
             assert self._backend is not None
             self._stage = "запуск вывода"
-            self._sink.start()
+            try:
+                self._sink.start()
+            except Exception as error:
+                self.get_logger().warning(
+                    f"Не удалось открыть аудиоустройство при активации ({error}), переключение на MemoryEmitter"
+                )
+                block_ms = int(self.get_parameter("block_ms").value)
+                device_rate = int(self.get_parameter("device_rate").value) or self._backend.sample_rate
+                self._sink = EpochFencedSink(
+                    MemoryEmitter(
+                        block=int(device_rate * block_ms / 1000),
+                        interval=block_ms / 1000.0,
+                    ),
+                    sample_rate=device_rate,
+                    max_queue_ms=int(self.get_parameter("max_queue_ms").value),
+                )
+                self._sink.start()
             self._stage = "разогрев модели"
             started = time.monotonic()
             warmup_text = str(self.get_parameter("warmup_text").value)
@@ -337,6 +374,7 @@ class TtsNode(LifecycleNode):
         assert self._chunker is not None
         assert self._backend is not None
 
+        self.get_logger().info(f"[TTS] Синтезирую и воспроизвожу: {utterance.text!r}")
         clauses = self._chunker.split(utterance.text)
         epoch = self._sink.epoch
         started = time.monotonic()

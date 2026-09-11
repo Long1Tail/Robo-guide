@@ -9,8 +9,8 @@
 /**/chat_node:
   ros__parameters:
     backend: "llama_cpp"          # llama_cpp | openai | echo
-    base_url: "http://127.0.0.1:8000"
-    model: ""
+    base_url: "http://host.docker.internal:11434"
+    model: "qwen2.5:3b" 
     api_key_env: "LLM_API_KEY"
     system_prompt_file: ""        # пусто -> config/system_prompt.txt
     max_history_turns: 6
@@ -20,7 +20,7 @@
     first_token_timeout_s: 3.0
     request_timeout_s: 20.0
 
-    require_wakeword: true
+    require_wakeword: false
     activation_phrases: ["робот", "слушай робот"]
     strip_activation_phrase: true
     engagement_timeout_s: 120.0   # музейный робот Alter-Ego -- не менять без причины
