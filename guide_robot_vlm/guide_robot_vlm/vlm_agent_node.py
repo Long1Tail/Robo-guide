@@ -229,6 +229,7 @@ class ChatNode(LifecycleNode):
         self._history: History | None = None
         self._turn_log: TurnLog | None = None
         self._system_prompt = ""
+        self._action_system_prompt = ""
         self._splitter_config = SentenceSplitterConfig()
 
         self._say_priority = 0
@@ -312,6 +313,7 @@ class ChatNode(LifecycleNode):
         )
 
         self._system_prompt = self._load_system_prompt()
+        self._action_system_prompt = self._load_action_system_prompt()
 
         self._backend = self._build_backend()
         self._backend_name = str(self.get_parameter("backend").value)
@@ -493,14 +495,21 @@ class ChatNode(LifecycleNode):
     def _load_system_prompt(self) -> str:
         path_str = str(self.get_parameter("system_prompt_file").value)
         if not path_str:
-            share_dir = get_package_share_directory("guide_robot_llm")
-            path_str = f"{share_dir}/config/system_prompt.txt"
+            share_dir = get_package_share_directory("guide_robot_vlm")
+            path_str = f"{share_dir}/config/system_prompt_chat.txt"
         path = pathlib.Path(path_str)
         if not path.exists():
             self.get_logger().warning(
                 f"файл системного промпта не найден: {path}, использую пустой"
             )
             return ""
+        return path.read_text(encoding="utf-8").strip()
+
+    def _load_action_system_prompt(self) -> str:
+        share_dir = get_package_share_directory("guide_robot_vlm")
+        path = pathlib.Path(share_dir) / "config" / "system_prompt.txt"
+        if not path.exists():
+            raise FileNotFoundError(f"файл action-промпта не найден: {path}")
         return path.read_text(encoding="utf-8").strip()
 
     def _build_backend(self) -> VlmBackend:
@@ -785,7 +794,11 @@ class ChatNode(LifecycleNode):
                 "ToolBroker не выполнил interrupt"
             )
 
-    def check_environment(self, abort_event: threading.Event | None = None) -> str | None:
+    def check_environment(
+        self,
+        user_text: str,
+        abort_event: threading.Event | None = None,
+    ) -> str | None:
         """Описать текущее окружение по актуальному кадру камеры."""
         if self._backend is None:
             return None
@@ -795,23 +808,8 @@ class ChatNode(LifecycleNode):
             return None
 
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Ты отвечаешь на запрос посетителя о текущем окружении робота. "
-                    "Описывай только то, что непосредственно видно на переданном кадре. "
-                    "Не используй JSON и не вызывай инструменты."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Кратко опиши, что видно на изображении перед роботом. "
-                    "Описывай только реально видимые объекты, людей и обстановку. "
-                    "Не делай предположений и не добавляй информацию, которой нет на изображении. "
-                    "Ответь по-русски, в 1-3 коротких предложениях."
-                ),
-            },
+            {"role": "system", "content": self._system_prompt},
+            {"role": "user", "content": user_text},
         ]
 
         abort = abort_event if abort_event is not None else threading.Event()
@@ -847,28 +845,8 @@ class ChatNode(LifecycleNode):
             return
 
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Ты анализируешь кадр камеры робота во время рассказа. "
-                    "Верни только JSON с полями tool, args, confidence, abstain. "
-                    "Допустимые tool: idle и interrupt. "
-                    "Если ситуация по кадру неоднозначна, выставь abstain=true."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Определи, продолжает ли хотя бы один находящийся рядом человек "
-                    "следить за роботом и его рассказом. "
-                    "Если хотя бы один человек находится рядом и явно обращает внимание "
-                    "на робота, выбери tool 'idle'. "
-                    "Если рядом нет людей либо никто из находящихся рядом людей "
-                    "не обращает внимание на робота, выбери tool 'interrupt'. "
-                    "Для interrupt укажи в args reason, people_count и looking_at_robot. "
-                    "Не придумывай информацию, которую невозможно определить по изображению."
-                ),
-            },
+            {"role": "system", "content": self._action_system_prompt},
+            {"role": "user", "content": ""},
         ]
 
         try:
@@ -923,7 +901,10 @@ class ChatNode(LifecycleNode):
         error_message: str | None = None
         try:
             if self._is_environment_query(turn.user_text):
-                environment_text = self.check_environment(turn.abort_event)
+                environment_text = self.check_environment(
+                    turn.user_text,
+                    turn.abort_event,
+                )
                 if turn.abort_event.is_set():
                     turn.token_queue.put(("done", None))
                 elif environment_text:
