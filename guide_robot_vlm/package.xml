@@ -1,17 +1,21 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+
 <package format="3">
   <name>guide_robot_vlm</name>
   <version>0.1.0</version>
+
   <description>
     VLM-оркестратор робота-экскурсовода: принимает решения по паре
     (кадр с камеры + запрос посетителя + состояние миссии), выбирает действие
     из фиксированной библиотеки навыков и формирует его аргументы.
   </description>
+
   <maintainer email="mook@innopolis.university">Mook</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
+  <depend>std_srvs</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
