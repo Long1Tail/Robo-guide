@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guide_robot_llm.lib.history import History
+from guide_robot_vlm.lib.history import History
 
 
 def test_window_is_empty_initially() -> None:

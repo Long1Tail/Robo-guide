@@ -13,13 +13,18 @@
 # limitations under the License.
 
 import pytest
-from ament_copyright.main import main
+try:
+    from ament_copyright.main import main
+except ImportError:
+    main = None
 
 
 # Remove the `skip` decorator once the source file(s) have a copyright header
-@pytest.mark.skip(reason="No copyright header has been placed in the generated source file.")
+@pytest.mark.skipif(main is None, reason="ament_copyright not installed or copyright skipped")
 @pytest.mark.copyright
 @pytest.mark.linter
 def test_copyright():
+    if main is None:
+        pytest.skip("ament_copyright is not installed")
     rc = main(argv=[".", "test"])
     assert rc == 0, "Found errors"

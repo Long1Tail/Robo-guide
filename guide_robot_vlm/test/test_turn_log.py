@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from guide_robot_llm.lib.turn_log import TurnLog
+from guide_robot_vlm.lib.turn_log import TurnLog
 
 
 def test_write_creates_file_in_log_dir(tmp_path) -> None:

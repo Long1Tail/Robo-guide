@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guide_robot_llm.lib.sentence_splitter import SentenceSplitter, SentenceSplitterConfig
+from guide_robot_vlm.lib.sentence_splitter import SentenceSplitter, SentenceSplitterConfig
 
 
 def make(**overrides: object) -> SentenceSplitter:
