@@ -19,6 +19,13 @@ geometry:
   lidar_z: 0.3624               # 0.495 - base_z - 0.03
   sonar_z: 0.2
 
+  # Camera mount position relative to base_link. TO-DO: verify on real robot.
+  # !!! Параметры временные, только для первого теста в симуляции, проверить, работает ли !!!
+  # !!! Сходить замерить расположение камеры !!!
+  camera_x: 0.15
+  camera_y: 0.0
+  camera_z: 1.2
+
   footprint_radius: 0.43
 
 odometry:

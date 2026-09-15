@@ -3,14 +3,15 @@
 <package format="3">
   <name>guide_robot_camera</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Camera driver wrapper: snapshot-by-trigger node and usb_cam launcher for the Guide robot.</description>
   <maintainer email="m.shulaev@innopolis.university">long1tail</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
+  <exec_depend>usb_cam</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
