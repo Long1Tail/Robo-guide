@@ -54,7 +54,7 @@ class ImagePreprocessor:
         target_width: int = 640,
         target_height: int = 480,
         jpeg_quality: int = 80,
-        max_frame_age_s: float = 1.0,
+        max_frame_age_s: float = 3.0,
         letterbox: bool = True,
         letterbox_fill: tuple[int, int, int] = (128, 128, 128),
     ) -> None:
