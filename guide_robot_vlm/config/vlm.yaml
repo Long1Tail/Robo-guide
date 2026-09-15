@@ -10,18 +10,18 @@
     temperature: 0.1
 
     # Камера и предобработка
-    camera_topic: "/camera/color/image_raw"
+    camera_topic: "/camera/image_raw"
     target_width: 640
     target_height: 480
     jpeg_quality: 80
-    max_frame_age_s: 1.0
+    max_frame_age_s: 3.0
 
     # Пороги валидации и безопасность
     min_confidence: 0.70
     fallback_phrase: "Извините, я не совсем понял вас. Пожалуйста, повторите."
 
     # Контроль внимания посетителей во время рассказа
-    people_check_interval_s: 3.0
+    people_check_interval_s: 10.0
     people_miss_threshold: 2
 
     # Настройки речи и логов
