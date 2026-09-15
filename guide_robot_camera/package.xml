@@ -4,8 +4,13 @@
   <name>guide_robot_camera</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="long1tail@todo.todo">long1tail</maintainer>
+  <maintainer email="m.shulaev@innopolis.university">long1tail</maintainer>
   <license>TODO: License declaration</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
