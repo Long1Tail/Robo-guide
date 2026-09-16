@@ -209,13 +209,13 @@ class ChatNode(LifecycleNode):
         self.declare_parameter("interrupted_marker", " [прервано]")
         self.declare_parameter("log_dir", "~/.ros/llm_turns")
         self.declare_parameter("diagnostics_hz", 1.0)
-        self.declare_parameter("people_check_interval_s", 3.0)
+        self.declare_parameter("people_check_interval_s", 10.0)
         self.declare_parameter("people_miss_threshold", 2)
-        self.declare_parameter("camera_topic", "/camera/color/image_raw")
+        self.declare_parameter("camera_topic", "/camera/image_raw")
         self.declare_parameter("target_width", 640)
         self.declare_parameter("target_height", 480)
         self.declare_parameter("jpeg_quality", 80)
-        self.declare_parameter("max_frame_age_s", 1.0)
+        self.declare_parameter("max_frame_age_s", 3.0)
         self.declare_parameter("min_confidence", 0.70)
         self.declare_parameter(
             "fallback_phrase",

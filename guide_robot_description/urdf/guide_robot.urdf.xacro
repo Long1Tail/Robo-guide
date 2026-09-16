@@ -277,6 +277,37 @@
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
   </joint>
 
+  <!-- ===================== Camera ====================================== -->
+  <!-- Logitech C270 USB camera, front-facing.
+       Position from robot_params.yaml. TO-DO: verify on real robot. -->
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="0.03 0.09 0.025"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.03 0.09 0.025"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="camera_link"/>
+    <origin xyz="${g['camera_x']} ${g['camera_y']} ${g['camera_z'] - base_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Optical frame: Z forward, X right, Y down (REP-103) -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
   <!-- ===================== ros2_control interface ====================== -->
   <xacro:include filename="$(find guide_robot_description)/urdf/guide_robot.ros2_control.xacro"/>
 
