@@ -1,0 +1,364 @@
+﻿\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{geometry}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{margin=2.2cm}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!5},
+  rulecolor=\color{gray!30}
+}
+
+\title{\textbf{Multimodal VLM Decision Layer for a Guide Robot:\\Offline Benchmarking, Prompt Ablation, and Multi-Task QLoRA Fine-Tuning}}
+\author{\textbf{Anonymous Blue Team} \\ PMLDL Course Project 2026}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This project upgrades the cognitive decision layer of an autonomous mobile guide robot from a text-only LLM to an embodied Vision-Language Model (VLM). The work spans two repositories: (1)~\textbf{\texttt{pmldl-benchmark}}, an independently developed offline benchmarking and fine-tuning suite, and (2)~\textbf{\texttt{Robo-guide}}, an open-source ROS~2 mobile robot stack maintained by the \textbf{Innopolis Robotics Society (IRS)}, into which our VLM orchestrator and camera streaming pipeline were integrated. We evaluated four edge VLMs ($\le 4$B parameters) on a 125-case benchmark across three operational methods: dialogue routing (\texttt{decide}), audience attention monitoring (\texttt{check\_people}), and on-demand scene description (\texttt{describe\_image}). Zero-shot base models failed to discriminate visitor engagement ($0\%$ to $27.6\%$ action accuracy). Systematic few-shot prompt engineering resolved JSON syntax errors and raised audience accuracy to $58.6\%$. Finally, multi-task 4-bit QLoRA fine-tuning on 110 real museum images yielded \textbf{96.6\% (28/29)} audience accuracy with \textbf{0\% false alarm rate} and $91.2\%$ complex navigation tool accuracy, achieving an overall score of \textbf{95.2\% (119/125)}.
+\end{abstract}
+
+% =============================================================================
+\section{Problem Statement}
+% =============================================================================
+
+\subsection{Task Description}
+Mobile tour-guide robots navigate predefined exhibition routes, narrate exhibits, and answer visitor questions. In the baseline system of the Innopolis Robotics Society (\texttt{guide\_robot\_llm}), dialogue decisions were made by a text-only LLM receiving speech transcripts (\texttt{/asr/transcript}) and tour state snapshots (\texttt{/mission/state}). Because the text agent lacked visual perception, it suffered from two key failures:
+\begin{enumerate}
+    \item \textbf{No audience awareness during narration:} If visitors leave during a tour, the robot continues talking to an empty room instead of pausing.
+    \item \textbf{Inability to answer visual queries:} When asked deictic or visual questions (e.g., \textit{``What do you see?''}), the robot could only emit static conversational excuses.
+\end{enumerate}
+
+The goal is to replace the text LLM with an edge VLM orchestrator that takes a triplet:
+\begin{equation}
+    (\text{Camera Frame} + \text{Visitor Transcript} + \text{Mission State}) \longrightarrow \text{Action Selection (JSON Tool Call)}
+\end{equation}
+The model selects actions from a closed skill registry (\texttt{start\_tour}, \texttt{stop\_tour}, \texttt{goto\_exhibit}, \texttt{describe\_exhibit}, \texttt{idle}, \texttt{interrupt}) and formats arguments strictly in JSON under bounded edge hardware limits ($\le 8$\,GB VRAM). Motor control, trajectory execution, and safety collision monitoring remain isolated and are handled downstream by Nav2 and safety supervisors.
+
+\subsection{Two-Repository System Structure}
+The implementation is cleanly partitioned into two distinct code repositories:
+\begin{itemize}
+    \item \textbf{\texttt{pmldl-benchmark} (Developed from scratch):} An offline machine learning testbed. It houses the 125-case synthetic benchmark, prompt ablation configs, a dataset curation pipeline for 110 real museum photos, and a 4-bit QLoRA fine-tuning script. It runs independently of ROS~2 for fast, reproducible model evaluation.
+    \item \textbf{\texttt{Robo-guide} (Innopolis Robotics Society):} The production mobile robotics codebase on ROS~2 Humble. Our contribution integrates the VLM into this stack via the \texttt{guide\_robot\_vlm} lifecycle node, \texttt{guide\_robot\_camera} USB driver, \texttt{tool\_broker} skill dispatcher, and connections to \texttt{/mission\_fsm/request\_pause} and \texttt{Say.action}.
+\end{itemize}
+
+\subsection{Data Sources and Benchmark Methods}
+Evaluation is standardized across three callable methods totaling 125 evaluation cases:
+\begin{itemize}
+    \item \textbf{\texttt{decide} (57 cases):} Multi-modal routing requiring tool selection and valid argument extraction (\texttt{location\_id}, \texttt{tour\_id}) based on utterance and context.
+    \item \textbf{\texttt{check\_people} (29 cases):} Periodic audience monitoring during narration. The model inspects a single camera frame and emits \texttt{"idle"} (continue narrating, $\ge 1$ attentive visitor present; 18 cases) or \texttt{"interrupt"} (pause narration, empty room or visitors turned away; 11 cases).
+    \item \textbf{\texttt{describe\_image} (39 cases):} On-demand scene narration for speech synthesis based on visual features without ungrounded factual claims.
+\end{itemize}
+
+\subsection{Evaluation Metrics}
+\begin{itemize}
+    \item \textbf{Configured Schema Validity ($V_{\text{raw}}$):} Percentage of responses that parse into valid JSON adhering to schema $\{\texttt{tool}, \texttt{args}, \texttt{confidence}, \texttt{abstain}\}$ under a \texttt{fence-only} policy (stripping at most one outer Markdown code block without semantic repair).
+    \item \textbf{Composite Correctness ($C_{\text{comp}}$):} For \texttt{decide}, requires exact match of expected tool and required arguments. Invalid JSON and abstentions score 0.
+    \item \textbf{Action Discrimination Accuracy ($A_{\text{action}}$):} For \texttt{check\_people}, the exact classification accuracy across the binary action space (\texttt{idle} vs. \texttt{interrupt}).
+    \item \textbf{Completion ($D_{\text{comp}}$):} For \texttt{describe\_image}, percentage of successful, non-empty text responses generated.
+    \item \textbf{Total Benchmark Score:} Sum of correct decisions across all 125 cases:
+    \begin{equation}
+        S_{\text{total}} = C_{\text{comp}}^{(\text{decide})} + A_{\text{correct}}^{(\text{check\_people})} + D_{\text{comp}}^{(\text{describe\_image})} \quad (\text{out of } 125)
+    \end{equation}
+\end{itemize}
+
+% =============================================================================
+\section{Baselines and Existing Solutions}
+% =============================================================================
+
+\subsection{Tested Candidate Models}
+We evaluated four compact, edge-capable VLMs (2B to 4B parameters) quantized to 4-bit integer weights (GGUF Q4\_K\_M) using a uniform \texttt{llama.cpp} Vulkan runtime on an NVIDIA RTX 4060 Laptop GPU (8\,GB VRAM) at temperature $T=0$:
+\begin{enumerate}
+    \item \textbf{Qwen3.5-4B (Q4\_K\_M)}
+    \item \textbf{Gemma3-4B-IT (Q4\_K\_M)}
+    \item \textbf{InternVL3.5-4B (Q4\_K\_M)}
+    \item \textbf{SmolVLM2-2.2B (Q4\_K\_M)}
+\end{enumerate}
+
+\subsection{Baseline Empirical Results}
+Table~\ref{tab:baseline_comparison} reports the baseline metrics on the 125-case benchmark under standard zero-shot prompting.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Zero-Shot Performance Comparison of Candidate Models on the 125-Case Benchmark.}
+\label{tab:baseline_comparison}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccccc@{}}
+\toprule
+\textbf{Model} & \textbf{VRAM} & \textbf{\texttt{decide}} & \textbf{\texttt{decide}} & \textbf{\texttt{check\_people}} & \textbf{\texttt{check\_people}} & \textbf{Total Score} \\
+& \textbf{(Quant)} & \textbf{Valid} & \textbf{Correct} & \textbf{Valid} & \textbf{Action Acc.} & \textbf{(out of 125)} \\
+\midrule
+\textbf{Qwen3.5-4B} & 4.2\,GB & 56/57 (98.2\%) & \textbf{56/57 (98.2\%)} & 13/29 (44.8\%) & 8/29 (27.6\%) & \textbf{103/125 (82.4\%)} \\
+\textbf{Gemma3-4B-IT} & 4.5\,GB & \textbf{57/57 (100\%)} & 37/57 (64.9\%) & \textbf{29/29 (100\%)} & 18/29 (62.1\%)$^\dagger$ & 94/125 (75.2\%) \\
+\textbf{InternVL3.5-4B} & 4.6\,GB & 56/57 (98.2\%) & 45/57 (78.9\%) & \textbf{29/29 (100\%)} & 18/29 (62.1\%)$^\dagger$ & 102/125 (81.6\%) \\
+\textbf{SmolVLM2-2.2B} & 2.4\,GB & 1/57 (1.8\%) & 0/57 (0.0\%) & 0/29 (0.0\%) & 0/29 (0.0\%) & 39/125 (31.2\%) \\
+\bottomrule
+\multicolumn{7}{l}{\footnotesize All models achieved 39/39 (100\%) non-empty completion on \texttt{describe\_image}.} \\
+\multicolumn{7}{l}{\footnotesize $^\dagger$Degenerate majority collapse: predicted \texttt{idle} for all 29 cases ($18/29 = 62.1\%$), missing $100\%$ of interruptions.}
+\end{tabular*}
+\end{table}
+
+\subsection{Failure Mode Analysis}
+Table~\ref{tab:baseline_confusion} details the audience-action confusion breakdown:
+\begin{itemize}
+    \item \textbf{Schema fragility in Qwen3.5-4B:} Out of 29 audience cases, Qwen generated 16 formatting errors (conversational text wrapping the JSON), yielding only $44.8\%$ schema validity.
+    \item \textbf{Majority class collapse in Gemma3 and InternVL3.5:} While both produced valid JSON, they completely failed visual perception: both predicted \texttt{idle} for every case, detecting 0 out of 11 interruptions.
+    \item \textbf{Complete failure in SmolVLM2-2.2B:} Generated unstructured natural language, failing JSON requirements entirely.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Baseline Audience Action Breakdown (Ground Truth: 18 \texttt{idle}, 11 \texttt{interrupt}).}
+\label{tab:baseline_confusion}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccccc@{}}
+\toprule
+\textbf{Model} & \textbf{Invalid / Syntax} & \textbf{Idle $\to$ Idle (TP)} & \textbf{Interrupt $\to$ Interrupt (TP)} & \textbf{Idle $\to$ Interrupt (FP)} & \textbf{Interrupt $\to$ Idle (FN)} \\
+\midrule
+Qwen3.5-4B & 16 & 0 & 8 & 5 & 0 \\
+Gemma3-4B-IT & 0 & \textbf{18} & 0 & 0 & 11 \\
+InternVL3.5-4B & 0 & \textbf{18} & 0 & 0 & 7 (+ 4 abstentions) \\
+SmolVLM2-2.2B & 29 & 0 & 0 & 0 & 0 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+% =============================================================================
+\section{Model Improvements: In-Context Prompt Ablation}
+% =============================================================================
+
+Because \textbf{Qwen3.5-4B} showed the highest reasoning capacity on dialogue routing ($98.2\%$), we chose it as the base model and investigated whether prompt engineering could resolve formatting fragility and induce audience discrimination without retraining.
+
+\subsection{Prompt Strategies Tested}
+We evaluated three prompt configurations on Qwen3.5-4B:
+\begin{enumerate}
+    \item \textbf{Zero-Shot (\texttt{0shot}):} System prompt containing task rules and schema definitions without examples.
+    \item \textbf{One-Shot (\texttt{1shot}):} Augmented with one example of attentive visitors mapping to \texttt{"idle"}.
+    \item \textbf{Few-Shot (\texttt{fewshot}):} Augmented with four balanced multi-condition exemplars:
+    \begin{itemize}
+        \item \textit{Exemplar 1 (Attentive):} Two people looking directly at the robot $\to$ \texttt{"idle"}.
+        \item \textit{Exemplar 2 (Empty Room):} Vacant gallery corridor $\to$ \texttt{"interrupt"}.
+        \item \textit{Exemplar 3 (Turned Away):} Visitors walking away with backs turned $\to$ \texttt{"interrupt"}.
+        \item \textit{Exemplar 4 (Sensor Ambiguity):} Severely blurred or occluded lens $\to$ \texttt{"abstain": true}.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Ablation Results}
+Tables~\ref{tab:prompt_ablation} and~\ref{tab:ablation_confusion} summarize the prompt ablation results.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Prompt Strategy Ablation on Qwen3.5-4B (Unified 125-Case Benchmark).}
+\label{tab:prompt_ablation}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccc@{}}
+\toprule
+\textbf{Metric} & \textbf{Zero-Shot (0-Shot)} & \textbf{One-Shot (1-Shot)} & \textbf{Few-Shot (4 Exemplars)} \\
+\midrule
+\textbf{\texttt{decide} Valid} & 57/57 (100.0\%) & 57/57 (100.0\%) & 57/57 (100.0\%) \\
+\textbf{\texttt{decide} Correct} & \textbf{57/57 (100.0\%)} & 55/57 (96.5\%) & 55/57 (96.5\%) \\
+\textbf{\texttt{check\_people} Valid} & 12/29 (41.4\%) & \textbf{29/29 (100.0\%)} & \textbf{29/29 (100.0\%)} \\
+\textbf{\texttt{check\_people} Action Correct} & 7/29 (24.1\%) & 10/29 (34.5\%) & \textbf{17/29 (58.6\%)} \\
+\textbf{\texttt{describe\_image} Non-empty} & 39/39 (100.0\%) & 39/39 (100.0\%) & 39/39 (100.0\%) \\
+\midrule
+\textbf{Total Benchmark Score} & 103/125 (82.4\%) & 104/125 (83.2\%) & \textbf{111/125 (88.8\%)} \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Audience Confusion Matrix under Prompt Ablation (18 \texttt{idle}, 11 \texttt{interrupt}).}
+\label{tab:ablation_confusion}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccc@{}}
+\toprule
+\textbf{Outcome} & \textbf{0-Shot} & \textbf{1-Shot} & \textbf{Few-Shot} \\
+\midrule
+Invalid Format / Schema Failure & 17 & \textbf{0} & \textbf{0} \\
+True Positive Idle (\texttt{idle} $\to$ \texttt{idle}) & 0 & 1 & \textbf{8} \\
+True Positive Interrupt (\texttt{interrupt} $\to$ \texttt{interrupt}) & 7 & \textbf{9} & \textbf{9} \\
+False Alarm Interrupt (\texttt{idle} $\to$ \texttt{interrupt}) & 5 & 17 (hyper-sensitive) & \textbf{10} \\
+Missed Interrupt (\texttt{interrupt} $\to$ \texttt{idle}) & \textbf{0} & 2 & 2 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\paragraph{Findings from Prompt Engineering:}
+\begin{enumerate}
+    \item A single exemplar restored $100\%$ JSON validity, eliminating all 17 formatting crashes.
+    \item 1-shot induced extreme hyper-sensitivity: the model classified nearly everything as an interruption (17 false alarms out of 18 attentive scenes).
+    \item The 4-exemplar prompt reduced false alarms from 17 to 10 and enabled genuine two-class discrimination, raising action accuracy to $58.6\%$.
+    \item For \texttt{decide}, 0-shot remained superior ($100\%$ vs. $96.5\%$), as extra few-shot examples slightly distracted the model on edge-case location IDs. Decoupling prompts (0-shot for \texttt{decide}, few-shot for \texttt{check\_people}) achieved an empirical baseline of \textbf{90.4\% (113/125)}.
+\end{enumerate}
+
+% =============================================================================
+\section{Proposed Model: Multi-Task QLoRA Fine-Tuning}
+% =============================================================================
+
+While prompt engineering reached $88.8\%$, a false alarm rate of $55.5\%$ ($10/18$) on audience presence remained unviable for production. We therefore conducted Supervised Fine-Tuning using 4-bit QLoRA.
+
+\subsection{Curated Museum Dataset}
+We curated 110 real photos captured in museum galleries (\texttt{datasets/train/}):
+\begin{itemize}
+    \item \textbf{Attentive (77 images):} Visitors facing the robot. Ground truth: \texttt{"idle"}.
+    \item \textbf{Inattentive (16 images):} Visitors viewing vitrines, in profile, or turned away. Ground truth: \texttt{"interrupt"}.
+    \item \textbf{Empty (17 images):} Corridors with zero people. Ground truth: \texttt{"interrupt"}.
+\end{itemize}
+To prevent catastrophic forgetting of navigation tool calling, the 110 images were formatted across all three methods, creating a balanced multi-task training set of 330 conversation pairs (110 \texttt{check\_people}, 110 \texttt{decide}, 110 \texttt{describe\_image}).
+
+\subsection{Training Setup and Hyperparameters}
+Training was performed on an RTX 4060 Laptop GPU (8\,GB VRAM) using Hugging Face \texttt{peft} and \texttt{bitsandbytes}. Specifications are detailed in Table~\ref{tab:training_specifications}.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{QLoRA Fine-Tuning Specifications on Qwen3.5-4B.}
+\label{tab:training_specifications}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Base Model & \texttt{Qwen/Qwen3.5-4B} \\
+Quantization & 4-bit NF4 double quantization \\
+LoRA Rank ($r$) / Alpha ($\alpha$) & $r=16$, $\alpha=32$ (all linear attention and MLP projections) \\
+Trainable Parameters & $20.2$\,M / $4.1$\,B ($0.49\%$ of total weights) \\
+Loss Masking & Prompt, question, and image tokens masked to $-100$ (loss on assistant JSON only) \\
+Optimizer & \texttt{paged\_adamw\_8bit} with gradient checkpointing \\
+Batch Size & 1 per device, 4 gradient accumulation steps (effective batch size: 4) \\
+Learning Rate & $2 \times 10^{-4}$ (cosine schedule, 10 warmup steps) \\
+Budget & 1 epoch ($83$ steps), runtime: $9$\,h $33$\,min \\
+Loss Convergence & Dropped from $1.1150$ to $0.5840$ \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\paragraph{Loss Masking:} We masked all system prompt, user text, and image tokens to $-100$. Backpropagation gradients were computed exclusively on the assistant's JSON decision tokens, protecting visual features from overfitting.
+
+% =============================================================================
+\section{Results and Empirical Analysis}
+% =============================================================================
+
+\subsection{Benchmark Performance Comparison}
+Table~\ref{tab:final_results} compares the baseline, few-shot, and fine-tuned models on the unified 125-case benchmark.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Overall Benchmark Results: Baselines vs. Proposed QLoRA Fine-Tuned Model.}
+\label{tab:final_results}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccc@{}}
+\toprule
+\textbf{Metric} & \textbf{0-Shot Baseline} & \textbf{Few-Shot Baseline} & \textbf{Proposed QLoRA Model} \\
+\midrule
+\textbf{\texttt{decide} Valid} & 57/57 (100.0\%) & 57/57 (100.0\%) & \textbf{57/57 (100.0\%)} \\
+\textbf{\texttt{decide} Correct} & \textbf{57/57 (100.0\%)} & 55/57 (96.5\%) & \textbf{52/57 (91.2\%)} \\
+\textbf{\texttt{check\_people} Valid} & 12/29 (41.4\%) & 29/29 (100.0\%) & \textbf{29/29 (100.0\%)} \\
+\textbf{\texttt{check\_people} Action Correct} & 7/29 (24.1\%) & 17/29 (58.6\%) & \textbf{28/29 (96.6\%)} \\
+\textbf{\texttt{describe\_image} Non-empty} & 39/39 (100.0\%) & 39/39 (100.0\%) & \textbf{39/39 (100.0\%)} \\
+\midrule
+\textbf{Total Benchmark Score} & 103/125 (82.4\%) & 111/125 (88.8\%) & \textbf{119/125 (95.2\%)} \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\subsection{Confusion Matrix and Key Outcomes}
+As shown in Table~\ref{tab:qlora_confusion}, fine-tuning delivered two critical improvements:
+\begin{enumerate}
+    \item \textbf{Zero False Alarms:} All 18 attentive visitor cases were correctly identified as \texttt{idle} ($100\%$ precision), reducing false alarms from 10 down to 0.
+    \item \textbf{High Interruption Recall:} Successfully paused on 10 of 11 disengaged or empty scenes ($90.9\%$ recall).
+    \item \textbf{Preserved Dialogue Competence:} Retained $91.2\%$ accuracy on complex navigation routing (\texttt{decide}).
+\end{enumerate}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Audience Confusion Matrix for \texttt{check\_people} (18 \texttt{idle}, 11 \texttt{interrupt}).}
+\label{tab:qlora_confusion}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccc@{}}
+\toprule
+\textbf{Outcome} & \textbf{0-Shot} & \textbf{Few-Shot} & \textbf{QLoRA Model} \\
+\midrule
+Invalid Format & 17 & 0 & \textbf{0} \\
+True Positive Idle (\texttt{idle} $\to$ \texttt{idle}) & 0 & 8 & \textbf{18 / 18 (100.0\%)} \\
+True Positive Interrupt (\texttt{interrupt} $\to$ \texttt{interrupt}) & 7 & 9 & \textbf{10 / 11 (90.9\%)} \\
+False Alarm Interrupt (\texttt{idle} $\to$ \texttt{interrupt}) & 5 & 10 & \textbf{0 / 18 (0.0\%)} \\
+Missed Interrupt (\texttt{interrupt} $\to$ \texttt{idle}) & \textbf{0} & 2 & 1 / 11 (9.1\%) \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+% =============================================================================
+\section{Reproducibility and Production ROS~2 Integration}
+% =============================================================================
+
+\subsection{Production ROS~2 Stack Integration (\texttt{Robo-guide})}
+The model was integrated into the Innopolis Robotics Society robot stack (\texttt{Robo-guide}) as follows:
+\begin{itemize}
+    \item \textbf{Camera Streaming (\texttt{guide\_robot\_camera}):} The \texttt{camera.launch.py} node runs \texttt{usb\_cam} at 640$\times$480, throttled from 30 to 10\,Hz to cut CPU/DDS overhead by $67\%$.
+    \item \textbf{Orchestrator (\texttt{guide\_robot\_vlm}):} \texttt{vlm\_agent_node} maintains a single-frame ring buffer ($< 1\,\mu$s update) and queries the VLM strictly on-demand. Frame freshness threshold was increased to $\tau_{\text{max}} = 3.0$\,s to tolerate edge scheduling jitter.
+    \item \textbf{Execution Wiring:} During narration, a 10-second timer triggers \texttt{check\_people()}; after two consecutive \texttt{"interrupt"} decisions, \texttt{tool\_broker} calls \texttt{/mission\_fsm/request\_pause}. On \textit{``what do you see?''}, \texttt{check\_environment()} streams text chunks to \texttt{Say.action}.
+\end{itemize}
+
+\subsection{Reproducibility Commands}
+All experiments can be reproduced in the \texttt{pmldl-benchmark} repository:
+
+\begin{lstlisting}[language=bash]
+# 1. Setup
+git clone <pmldl-benchmark-repo-url>
+cd pmldl-benchmark && python -m venv .venv && source .venv/bin/activate
+pip install -e ".[test]"
+
+# 2. Run Prompt Ablation Benchmarks
+python -m vlm_benchmark run datasets/methods/cases.jsonl \
+  --config configs/methods-qwen3.5-4b-0shot.json --output runs/qwen-0shot
+python -m vlm_benchmark run datasets/methods/cases.jsonl \
+  --config configs/methods-qwen3.5-4b-fewshot.json --output runs/qwen-fewshot
+
+# 3. Train QLoRA Model (RTX 4060 8GB, ~9.5 hours)
+python scripts/train_lora_qwen.py \
+  --dataset-path datasets/train/cases.jsonl \
+  --output-dir outputs/qwen3.5-4b-fewshot-lora \
+  --epochs 1 --batch-size 1 --grad-accum 4 --lr 2e-4
+
+# 4. Evaluate Fine-Tuned Model
+python -m vlm_benchmark run datasets/methods/cases.jsonl \
+  --config configs/methods-qwen3.5-4b-lora.json --output runs/qwen-lora
+\end{lstlisting}
+
+% =============================================================================
+\section{Conclusion and Limitations}
+% =============================================================================
+
+\subsection{Summary of Findings}
+\begin{enumerate}
+    \item Base 2B--4B VLMs without task conditioning fail on visual audience assessment ($0\%$ to $27.6\%$).
+    \item Few-shot prompt engineering restores schema validity ($100\%$) and induces basic discrimination ($58.6\%$).
+    \item Multi-task 4-bit QLoRA fine-tuning with selective loss masking achieved \textbf{96.6\% audience accuracy} with \textbf{zero false alarms} and $91.2\%$ complex navigation tool accuracy, achieving an overall score of \textbf{95.2\%}.
+    \item The model was verified inside the production ROS~2 stack of the \textbf{Innopolis Robotics Society}, demonstrating low-latency execution on 8\,GB edge hardware.
+\end{enumerate}
+
+\subsection{Limitations}
+\begin{itemize}
+    \item \textbf{Severe boundary crops:} The model missed 1 out of 11 interruptions where a visitor stood on the far edge of the frame in deep shadow.
+    \item \textbf{Synthetic dialogue evaluation:} While the training set utilized real physical museum photography, dialogue cases were scripted developmental scenarios.
+    \item \textbf{Qualitative text evaluation:} Scene descriptions were evaluated for syntactic completion, not factual nuances.
+\end{itemize}
+
+\end{document}
